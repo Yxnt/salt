@@ -87,10 +87,75 @@ class CoreGrainsTestCase(TestCase, LoaderModuleMockMixin):
             "UBUNTU_CODENAME": "artful",
         })
 
+    def test_parse_cpe_name_wfn(self):
+        '''
+        Parse correct CPE_NAME data WFN formatted
+        :return:
+        '''
+        for cpe, cpe_ret in [('cpe:/o:opensuse:leap:15.0',
+                              {'phase': None, 'version': '15.0', 'product': 'leap',
+                               'vendor': 'opensuse', 'part': 'operating system'}),
+                             ('cpe:/o:vendor:product:42:beta',
+                              {'phase': 'beta', 'version': '42', 'product': 'product',
+                               'vendor': 'vendor', 'part': 'operating system'})]:
+            ret = core._parse_cpe_name(cpe)
+            for key in cpe_ret:
+                assert key in ret
+                assert cpe_ret[key] == ret[key]
+
+    def test_parse_cpe_name_v23(self):
+        '''
+        Parse correct CPE_NAME data v2.3 formatted
+        :return:
+        '''
+        for cpe, cpe_ret in [('cpe:2.3:o:microsoft:windows_xp:5.1.601:beta:*:*:*:*:*:*',
+                              {'phase': 'beta', 'version': '5.1.601', 'product': 'windows_xp',
+                               'vendor': 'microsoft', 'part': 'operating system'}),
+                             ('cpe:2.3:h:corellian:millenium_falcon:1.0:*:*:*:*:*:*:*',
+                              {'phase': None, 'version': '1.0', 'product': 'millenium_falcon',
+                               'vendor': 'corellian', 'part': 'hardware'}),
+                             ('cpe:2.3:*:dark_empire:light_saber:3.0:beta:*:*:*:*:*:*',
+                              {'phase': 'beta', 'version': '3.0', 'product': 'light_saber',
+                               'vendor': 'dark_empire', 'part': None})]:
+            ret = core._parse_cpe_name(cpe)
+            for key in cpe_ret:
+                assert key in ret
+                assert cpe_ret[key] == ret[key]
+
+    def test_parse_cpe_name_broken(self):
+        '''
+        Parse broken CPE_NAME data
+        :return:
+        '''
+        for cpe in ['cpe:broken', 'cpe:broken:in:all:ways:*:*:*:*',
+                    'cpe:x:still:broken:123', 'who:/knows:what:is:here']:
+            assert core._parse_cpe_name(cpe) == {}
+
     def test_missing_os_release(self):
         with patch('salt.utils.files.fopen', mock_open(read_data={})):
             os_release = core._parse_os_release('/etc/os-release', '/usr/lib/os-release')
         self.assertEqual(os_release, {})
+
+    @skipIf(not salt.utils.platform.is_windows(), 'System is not Windows')
+    def test__windows_platform_data(self):
+        grains = core._windows_platform_data()
+        keys = ['biosversion',
+                'osrelease',
+                'kernelrelease',
+                'motherboard',
+                'serialnumber',
+                'timezone',
+                'manufacturer',
+                'kernelversion',
+                'osservicepack',
+                'virtual',
+                'productname',
+                'osfullname',
+                'osmanufacturer',
+                'osversion',
+                'windowsdomain']
+        for key in keys:
+            self.assertIn(key, grains)
 
     @skipIf(not salt.utils.platform.is_linux(), 'System is not Linux')
     def test_gnu_slash_linux_in_os_name(self):
@@ -539,6 +604,136 @@ class CoreGrainsTestCase(TestCase, LoaderModuleMockMixin):
         }
         self._run_os_grains_tests("ubuntu-17.10", _os_release_map, expectation)
 
+    @skipIf(not salt.utils.platform.is_windows(), 'System is not Windows')
+    def test_windows_platform_data(self):
+        '''
+        Test the _windows_platform_data function
+        '''
+        grains = ['biosversion', 'kernelrelease', 'kernelversion',
+                  'manufacturer', 'motherboard', 'osfullname', 'osmanufacturer',
+                  'osrelease', 'osservicepack', 'osversion', 'productname',
+                  'serialnumber', 'timezone', 'virtual', 'windowsdomain',
+                  'windowsdomaintype']
+        returned_grains = core._windows_platform_data()
+        for grain in grains:
+            self.assertIn(grain, returned_grains)
+
+        valid_types = ['Unknown', 'Unjoined', 'Workgroup', 'Domain']
+        self.assertIn(returned_grains['windowsdomaintype'], valid_types)
+        valid_releases = ['Vista', '7', '8', '8.1', '10', '2008Server',
+                          '2008ServerR2', '2012Server', '2012ServerR2',
+                          '2016Server', '2019Server']
+        self.assertIn(returned_grains['osrelease'], valid_releases)
+
+    def test__windows_os_release_grain(self):
+        versions = {
+            'Windows 10 Home': '10',
+            'Windows 10 Pro': '10',
+            'Windows 10 Pro for Workstations': '10',
+            'Windows 10 Pro Education': '10',
+            'Windows 10 Enterprise': '10',
+            'Windows 10 Enterprise LTSB': '10',
+            'Windows 10 Education': '10',
+            'Windows 10 IoT Core': '10',
+            'Windows 10 IoT Enterprise': '10',
+            'Windows 10 S': '10',
+            'Windows 8.1': '8.1',
+            'Windows 8.1 Pro': '8.1',
+            'Windows 8.1 Enterprise': '8.1',
+            'Windows 8.1 OEM': '8.1',
+            'Windows 8.1 with Bing': '8.1',
+            'Windows 8': '8',
+            'Windows 8 Pro': '8',
+            'Windows 8 Enterprise': '8',
+            'Windows 8 OEM': '8',
+            'Windows 7 Starter': '7',
+            'Windows 7 Home Basic': '7',
+            'Windows 7 Home Premium': '7',
+            'Windows 7 Professional': '7',
+            'Windows 7 Enterprise': '7',
+            'Windows 7 Ultimate': '7',
+            'Windows Thin PC': 'Thin',
+            'Windows Vista Starter': 'Vista',
+            'Windows Vista Home Basic': 'Vista',
+            'Windows Vista Home Premium': 'Vista',
+            'Windows Vista Business': 'Vista',
+            'Windows Vista Enterprise': 'Vista',
+            'Windows Vista Ultimate': 'Vista',
+            'Windows Server 2019 Essentials': '2019Server',
+            'Windows Server 2019 Standard': '2019Server',
+            'Windows Server 2019 Datacenter': '2019Server',
+            'Windows Server 2016 Essentials': '2016Server',
+            'Windows Server 2016 Standard': '2016Server',
+            'Windows Server 2016 Datacenter': '2016Server',
+            'Windows Server 2012 R2 Foundation': '2012ServerR2',
+            'Windows Server 2012 R2 Essentials': '2012ServerR2',
+            'Windows Server 2012 R2 Standard': '2012ServerR2',
+            'Windows Server 2012 R2 Datacenter': '2012ServerR2',
+            'Windows Server 2012 Foundation': '2012Server',
+            'Windows Server 2012 Essentials': '2012Server',
+            'Windows Server 2012 Standard': '2012Server',
+            'Windows Server 2012 Datacenter': '2012Server',
+            'Windows MultiPoint Server 2012': '2012Server',
+            'Windows Small Business Server 2011': '2011Server',
+            'Windows MultiPoint Server 2011': '2011Server',
+            'Windows Home Server 2011': '2011Server',
+            'Windows MultiPoint Server 2010': '2010Server',
+            'Windows Server 2008 R2 Foundation': '2008ServerR2',
+            'Windows Server 2008 R2 Standard': '2008ServerR2',
+            'Windows Server 2008 R2 Enterprise': '2008ServerR2',
+            'Windows Server 2008 R2 Datacenter': '2008ServerR2',
+            'Windows Server 2008 R2 for Itanium-based Systems': '2008ServerR2',
+            'Windows Web Server 2008 R2': '2008ServerR2',
+            'Windows Storage Server 2008 R2': '2008ServerR2',
+            'Windows HPC Server 2008 R2': '2008ServerR2',
+            'Windows Server 2008 Standard': '2008Server',
+            'Windows Server 2008 Enterprise': '2008Server',
+            'Windows Server 2008 Datacenter': '2008Server',
+            'Windows Server 2008 for Itanium-based Systems': '2008Server',
+            'Windows Server Foundation 2008': '2008Server',
+            'Windows Essential Business Server 2008': '2008Server',
+            'Windows HPC Server 2008': '2008Server',
+            'Windows Small Business Server 2008': '2008Server',
+            'Windows Storage Server 2008': '2008Server',
+            'Windows Web Server 2008': '2008Server'
+        }
+        for caption in versions:
+            version = core._windows_os_release_grain(caption, 1)
+            self.assertEqual(
+                version,
+                versions[caption],
+                'version: {0}\n'
+                'found: {1}\n'
+                'caption: {2}'.format(version, versions[caption], caption)
+            )
+
+        embedded_versions = {
+            'Windows Embedded 8.1 Industry Pro': '8.1',
+            'Windows Embedded 8 Industry Pro': '8',
+            'Windows POSReady 7': '7',
+            'Windows Embedded Standard 7': '7',
+            'Windows Embedded POSReady 2009': '2009',
+            'Windows Embedded Standard 2009': '2009',
+            'Windows XP Embedded': 'XP',
+        }
+        for caption in embedded_versions:
+            version = core._windows_os_release_grain(caption, 1)
+            self.assertEqual(
+                version,
+                embedded_versions[caption],
+                '{0} != {1}\n'
+                'version: {0}\n'
+                'found: {1}\n'
+                'caption: {2}'.format(version, embedded_versions[caption], caption)
+            )
+
+        # Special Cases
+        # Windows Embedded Standard is Windows 7
+        caption = 'Windows Embedded Standard'
+        with patch('platform.release', MagicMock(return_value='7')):
+            version = core._windows_os_release_grain(caption, 1)
+            self.assertEqual(version, '7')
+
     @skipIf(not salt.utils.platform.is_linux(), 'System is not Linux')
     def test_linux_memdata(self):
         '''
@@ -625,7 +820,7 @@ class CoreGrainsTestCase(TestCase, LoaderModuleMockMixin):
     @skipIf(salt.utils.platform.is_windows(), 'System is Windows')
     def test_docker_virtual(self):
         '''
-        Test if OS grains are parsed correctly in Ubuntu Xenial Xerus
+        Test if virtual grains are parsed correctly in Docker.
         '''
         with patch.object(os.path, 'isdir', MagicMock(return_value=False)):
             with patch.object(os.path,
@@ -639,10 +834,79 @@ class CoreGrainsTestCase(TestCase, LoaderModuleMockMixin):
                         'Testing Docker cgroup substring \'%s\'', cgroup_substr)
                     with patch('salt.utils.files.fopen', mock_open(read_data=cgroup_data)):
                         with patch.dict(core.__salt__, {'cmd.run_all': MagicMock()}):
+                            grains = core._virtual({'kernel': 'Linux'})
                             self.assertEqual(
-                                core._virtual({'kernel': 'Linux'}).get('virtual_subtype'),
+                                grains.get('virtual_subtype'),
                                 'Docker'
                             )
+                            self.assertEqual(
+                                grains.get('virtual'),
+                                'container',
+                            )
+
+    @skipIf(salt.utils.platform.is_windows(), 'System is Windows')
+    def test_lxc_virtual(self):
+        '''
+        Test if virtual grains are parsed correctly in LXC.
+        '''
+        with patch.object(os.path, 'isdir', MagicMock(return_value=False)):
+            with patch.object(os.path,
+                              'isfile',
+                              MagicMock(side_effect=lambda x: True if x == '/proc/1/cgroup' else False)):
+                cgroup_data = '10:memory:/lxc/a_long_sha256sum'
+                with patch('salt.utils.files.fopen', mock_open(read_data=cgroup_data)):
+                    with patch.dict(core.__salt__, {'cmd.run_all': MagicMock()}):
+                        grains = core._virtual({'kernel': 'Linux'})
+                        self.assertEqual(
+                            grains.get('virtual_subtype'),
+                            'LXC'
+                        )
+                        self.assertEqual(
+                            grains.get('virtual'),
+                            'container',
+                        )
+
+    @skipIf(not salt.utils.platform.is_linux(), 'System is not Linux')
+    def test_xen_virtual(self):
+        '''
+        Test if OS grains are parsed correctly in Ubuntu Xenial Xerus
+        '''
+        with patch.multiple(os.path, isdir=MagicMock(side_effect=lambda x: x == '/sys/bus/xen'),
+                            isfile=MagicMock(side_effect=lambda x:
+                                             x == '/sys/bus/xen/drivers/xenconsole')):
+            with patch.dict(core.__salt__, {'cmd.run': MagicMock(return_value='')}):
+                log.debug('Testing Xen')
+                self.assertEqual(
+                    core._virtual({'kernel': 'Linux'}).get('virtual_subtype'),
+                    'Xen PV DomU'
+                )
+
+    def test_if_virtual_subtype_exists_virtual_should_fallback_to_virtual(self):
+        def mockstat(path):
+            if path == '/':
+                return 'fnord'
+            elif path == '/proc/1/root/.':
+                return 'roscivs'
+            return None
+        with patch.dict(
+            core.__salt__,
+            {
+                'cmd.run': MagicMock(return_value=''),
+                'cmd.run_all': MagicMock(return_value={'retcode': 0, 'stdout': ''}),
+            }
+        ):
+            with patch.multiple(
+                os.path,
+                isfile=MagicMock(return_value=False),
+                isdir=MagicMock(side_effect=lambda x: x == '/proc'),
+            ):
+                with patch.multiple(
+                    os,
+                    stat=MagicMock(side_effect=mockstat),
+                ):
+                    grains = core._virtual({'kernel': 'Linux'})
+                    assert grains.get('virtual_subtype') is not None
+                    assert grains.get('virtual') == 'virtual'
 
     def _check_ipaddress(self, value, ip_v):
         '''
@@ -783,9 +1047,32 @@ class CoreGrainsTestCase(TestCase, LoaderModuleMockMixin):
         ret = {'fqdns': ['bluesniff.foo.bar', 'foo.bar.baz', 'rinzler.evil-corp.com']}
         with patch.object(socket, 'gethostbyaddr', side_effect=reverse_resolv_mock):
             fqdns = core.fqdns()
-            self.assertIn('fqdns', fqdns)
-            self.assertEqual(len(fqdns['fqdns']), len(ret['fqdns']))
-            self.assertEqual(set(fqdns['fqdns']), set(ret['fqdns']))
+            assert "fqdns" in fqdns
+            assert len(fqdns['fqdns']) == len(ret['fqdns'])
+            assert set(fqdns['fqdns']) == set(ret['fqdns'])
+
+    @skipIf(not salt.utils.platform.is_linux(), 'System is not Linux')
+    @patch.object(salt.utils.platform, 'is_windows', MagicMock(return_value=False))
+    @patch('salt.utils.network.ip_addrs', MagicMock(return_value=['1.2.3.4', '5.6.7.8']))
+    @patch('salt.utils.network.ip_addrs6',
+           MagicMock(return_value=['fe80::a8b2:93ff:fe00:0', 'fe80::a8b2:93ff:dead:beef']))
+    @patch('salt.utils.network.socket.getfqdn', MagicMock(side_effect=lambda v: v))  # Just pass-through
+    def test_fqdns_aliases(self):
+        '''
+        FQDNs aliases
+        '''
+        reverse_resolv_mock = [('foo.bar.baz', ["throwmeaway", "this.is.valid.alias"], ['1.2.3.4']),
+                               ('rinzler.evil-corp.com', ["false-hostname", "badaliass"], ['5.6.7.8']),
+                               ('foo.bar.baz', [], ['fe80::a8b2:93ff:fe00:0']),
+                               ('bluesniff.foo.bar', ["alias.bluesniff.foo.bar"], ['fe80::a8b2:93ff:dead:beef'])]
+        with patch.object(socket, 'gethostbyaddr', side_effect=reverse_resolv_mock):
+            fqdns = core.fqdns()
+            assert "fqdns" in fqdns
+            for alias in ["this.is.valid.alias", "alias.bluesniff.foo.bar"]:
+                assert alias in fqdns["fqdns"]
+
+            for alias in ["throwmeaway", "false-hostname", "badaliass"]:
+                assert alias not in fqdns["fqdns"]
 
     def test_core_virtual(self):
         '''
@@ -1001,3 +1288,32 @@ class CoreGrainsTestCase(TestCase, LoaderModuleMockMixin):
                 assert ret[count]['model'] == device[2]
                 assert ret[count]['vendor'] == device[3]
                 count += 1
+
+    @skipIf(not salt.utils.platform.is_linux(), 'System is not Linux')
+    def test_kernelparams_return(self):
+        expectations = [
+            ('BOOT_IMAGE=/vmlinuz-3.10.0-693.2.2.el7.x86_64',
+             {'kernelparams': [('BOOT_IMAGE', '/vmlinuz-3.10.0-693.2.2.el7.x86_64')]}),
+            ('root=/dev/mapper/centos_daemon-root',
+             {'kernelparams': [('root', '/dev/mapper/centos_daemon-root')]}),
+            ('rhgb quiet ro',
+             {'kernelparams': [('rhgb', None), ('quiet', None), ('ro', None)]}),
+            ('param="value1"',
+             {'kernelparams': [('param', 'value1')]}),
+            ('param="value1 value2 value3"',
+             {'kernelparams': [('param', 'value1 value2 value3')]}),
+            ('param="value1 value2 value3" LANG="pl" ro',
+             {'kernelparams': [('param', 'value1 value2 value3'), ('LANG', 'pl'), ('ro', None)]}),
+            ('ipv6.disable=1',
+             {'kernelparams': [('ipv6.disable', '1')]}),
+            ('param="value1:value2:value3"',
+             {'kernelparams': [('param', 'value1:value2:value3')]}),
+            ('param="value1,value2,value3"',
+             {'kernelparams': [('param', 'value1,value2,value3')]}),
+            ('param="value1" param="value2" param="value3"',
+             {'kernelparams': [('param', 'value1'), ('param', 'value2'), ('param', 'value3')]}),
+        ]
+
+        for cmdline, expectation in expectations:
+            with patch('salt.utils.files.fopen', mock_open(read_data=cmdline)):
+                self.assertEqual(core.kernelparams(), expectation)
